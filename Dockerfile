@@ -1,98 +1,35 @@
-# MIT License
-#
-# Copyright (C) 2023 Goodarz Mehr
-# Copyright (C) 2023 Virginia Tech ASIM Lab
-#
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to
-# deal in the Software without restriction, including without limitation the
-# rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
-# sell copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be included in
-# all copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-# FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
-# IN THE SOFTWARE.
+# Use the official Ubuntu 20.04 as the base image
+FROM nvidia/cudagl:11.3.0-base-ubuntu20.04
 
-# OpenCDA Docker Configuration Script
-#
-# Performs all the necessary tasks regarding the generation of a generic
-# OpenCDA Docker image, including installation of CARLA and its additional
-# maps, perception components (PyTorch and YOLOv5), and SUMO.
-#
-# The base Docker image is Ubuntu 20.04 with CUDA 11.4.2 and Vulkan SDK
-# 1.3.204.1. If you want to use a different base image, you may need to modify
-# "ubuntu2004/x86_64" when fetching keys according to your Ubuntu release and
-# system architecture.
+#USER root
 
-# Build Arguments (Case Sensitive):
-#
-# USER:                 default username inside each container, set to
-#                       "opencda" by default.
-# CARLA_VERSION:        desired version of CARLA, set to "0.9.12" by default.
-# ADDITIONAL_MAPS:      whether additional CARLA maps should be installed, set
-#                       to "true" by default.
-# PERCEPTION:           whether perception components (PyTorch and YOLOv5)
-#                       should be installed, set to "true" by default.
-# SUMO:                 whether SUMO should be installed, set to "true" by
-#                       default.
-# OPENCDA_FULL_INSTALL: whether OpenCDA should be fully installed and set up,
-#                       or if only the required dependencies should be
-#                       installed. In the latter OpenCDA can be mounted to the
-#                       container at runtime, enabling faster development
-#                       cycles. Set to "false" by default.
-
-# Installation:
-#
-# 1. Install Docker on your system (https://docs.docker.com/engine/install/).
-# 2. If you are using an Nvidia graphics card, install the Nvidia Container
-# Toolkit (https://docs.nvidia.com/datacenter/cloud-native/container-toolkit
-# /install-guide.html#installation-guide). It exposes your Nvidia graphics
-# card to Docker containers.
-# 3. In the Dockerfile directory, run
-#
-# docker build --no-cache --rm --build-arg ARG -t opencda:develop .
-
-# Usage:
-#
-# Launch a container by running
-#
-# docker run --privileged --gpus all --network=host -e DISPLAY=$DISPLAY
-# -v /usr/share/vulkan/icd.d:/usr/share/vulkan/icd.d
-# -it opencda:develop /bin/bash
-#
-# Use "nvidia-smi" and "vulkaninfo --summary" to ensure your graphics card and
-# Vulkan are both available inside the container. You may need to add some or
-# all of the following when launching the container to ensure this.
-#
-# -e SDL_VIDEODRIVER=x11
-# -e XAUTHORITY=$XAUTHORITY
-# -v /tmp/.X11-unix:/tmp/.X11-unix:rw
-# -v $XAUTHORITY:$XAUTHORITY
-
-FROM nvidia/vulkan:1.3-470
-
-# Define build arguments and environment variables.
-
+# Define build arguments
 ARG USER=opencda
-ARG CARLA_VERSION=0.9.12
+ARG CARLA_VERSION=0.9.14
 ARG ADDITIONAL_MAPS=true
 ARG PERCEPTION=true
 ARG SUMO=true
 ARG OPENCDA_FULL_INSTALL=true
 
-ENV TZ=America/New_York
+
+ARG PYTHON_VERSION=3.8
+ARG CUDA_VERSION_=11-3
+ARG CUDA_VERSION=11.3
+
+# Use the UID and GID from the host user
+#ARG UID=<host_user_uid>
+#ARG GID=<host_user_gid>
+
+# Set environment variables
+ENV TZ=Europe/Berlin
 ENV DEBIAN_FRONTEND=noninteractive
 ENV CARLA_VERSION=$CARLA_VERSION
 ENV CARLA_HOME=/home/carla
 ENV SUMO_HOME=/usr/share/sumo
+ENV NVIDIA_DRIVER_VERSION=470
+
+#ENV CARLA_ROOT=/carla
+#ENV WORKSPACE_ROOT=/workspace
 
 # Add new user and install prerequisite packages.
 
@@ -100,14 +37,59 @@ WORKDIR /home
 
 RUN useradd -m ${USER}
 
-RUN set -xue && apt-key del 7fa2af80 \
-&& apt-key adv --fetch-keys https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/3bf863cc.pub \
-&& apt-get update \
-&& apt-get install -y build-essential cmake debhelper git wget xdg-user-dirs xserver-xorg libvulkan1 libsdl2-2.0-0 \
-libsm6 libgl1-mesa-glx libomp5 pip unzip libjpeg8 libtiff5 software-properties-common nano fontconfig
+# Update package lists and install necessary packages
+RUN apt-get update && \
+    apt-get install -y \
+        x11-apps \
+        mesa-utils \
+        python${PYTHON_VERSION} \
+        python${PYTHON_VERSION}-distutils \
+        wget \
+        gedit \
+        libomp5 \
+        libx11-6 \
+        libxext6 \
+        gosu \
+        gedit \
+        libxrender-dev && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
-# Install CARLA and its additional maps.
+# Download and install NVIDIA driver
+RUN apt-get update && \
+    apt-get install -y \
+        curl \
+        gnupg && \
+    curl -s -L https://nvidia.github.io/nvidia-docker/gpgkey | apt-key add - && \
+    distribution=$(. /etc/os-release;echo $ID$VERSION_ID) && \
+    curl -s -L https://nvidia.github.io/nvidia-docker/$distribution/nvidia-docker.list > /etc/apt/sources.list.d/nvidia-docker.list && \
+    apt-get update && \
+    apt-get install -y \
+        nvidia-driver-$NVIDIA_DRIVER_VERSION \
+        nvidia-docker2 && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+    
+# Install CUDA
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        cuda-toolkit-${CUDA_VERSION_} && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
+# Set up environment variables for CUDA and PyTorch
+ENV LD_LIBRARY_PATH=/usr/local/cuda-${CUDA_VERSION}/lib64:$LD_LIBRARY_PATH
+ENV PATH=/usr/local/cuda-${CUDA_VERSION}/bin:$PATH
+
+# Install Python packages using pip
+RUN wget https://bootstrap.pypa.io/get-pip.py && \
+    python3 get-pip.py && \
+    rm get-pip.py && \
+    pip install \
+        torch==1.10.0 \
+        torchvision==0.11.1
+
+# Download and install CARLA 0.9.14
 RUN mkdir carla
 
 RUN wget https://carla-releases.s3.eu-west-3.amazonaws.com/Linux/CARLA_${CARLA_VERSION}.tar.gz -nv --show-progress \
@@ -119,6 +101,31 @@ wget https://carla-releases.s3.eu-west-3.amazonaws.com/Linux/AdditionalMaps_${CA
 tar -zxvf AdditionalMaps_${CARLA_VERSION}.tar.gz --directory carla && rm AdditionalMaps_${CARLA_VERSION}.tar.gz ; \
 elif [ ${ADDITIONAL_MAPS} != false ] ; then echo "Invalid ADDITIONAL_MAPS argument." ; \
 else echo "Additional CARLA maps will not be installed." ; fi && chown -R ${USER}:${USER} /home/carla
+# WORKDIR $CARLA_ROOT
+#WORKDIR /workspace
+#RUN mkdir -p $CARLA_ROOT
+#WORKDIR /workspace
+#RUN cd $CARLA_ROOT
+# RUN wget https://carla-releases.s3.eu-west-3.amazonaws.com/Linux/CARLA_${CARLA_VERSION}.tar.gz && \
+#     tar xvzf CARLA_${CARLA_VERSION}.tar.gz && \
+#     rm CARLA_${CARLA_VERSION}.tar.gz
+
+# Set up environment variable for Carla Python API
+ENV PYTHONPATH=$PYTHONPATH:$CARLA_HOME/PythonAPI/carla/dist/carla-${CARLA_VERSION}-py3.7-linux-x86_64.egg:$CARLA_HOME/PythonAPI/carla/
+
+# Set working directory
+#WORKDIR /workspace
+
+# Install requirements for Carla Examples
+
+RUN python3 -m pip install -r /home/carla/PythonAPI/examples/requirements.txt
+
+# Install requirements for FLYOLO
+RUN pip install opencv-python
+#WORKDIR /workspace
+#RUN mkdir /log_test && cd /log_test && touch log.txt && ls /workspace/ > log.txt
+#RUN python3 -m pip install -r CarlaFLCAV/FLYolo/yolov5/requirements.txt
+RUN pip install cvxpy
 
 # Install the perception components (PyTorch and YOLOv5).
 
@@ -126,6 +133,20 @@ RUN if [ ${PERCEPTION} = true ] ; then \
 pip install torch torchvision torchaudio yolov5 ; \
 elif [ ${PERCEPTION} != false ] ; then echo "Invalid PERCEPTION argument." ; \
 else echo "Perception components (PyTorch and YOLOv5) will not be installed." ; fi
+
+# Add a new user and copy project files
+#RUN useradd -m -u $UID -o -g $GID flcav
+#RUN useradd -m -s /bin/bash flcav_user
+#COPY --chown=flcav:flcav . /workspace
+
+# Switch to the user
+#USER flcav_user
+
+#RUN useradd -ms /bin/bash flcav_user
+#RUN gosu flcav_user /bin/bash 
+
+# Install software-properties-common to get add-apt-repository
+RUN apt-get update && apt-get install -y software-properties-common
 
 # Install SUMO.
 
@@ -147,4 +168,24 @@ git clone https://github.com/ucla-mobility/OpenCDA.git && pip install -r OpenCDA
 && chown -R ${USER}:${USER} /home/OpenCDA ; \
 else echo "Invalid OPENCDA_FULL_INSTALL argument." ; fi
 
+# Create a directory named 'bridge' in the container
+RUN mkdir /bridge
+
 USER ${USER}
+
+# # Add a new user and copy project files
+# RUN useradd -m flcav_user	
+# COPY --chown=flcav_user:flcav_user . /workspace
+
+# # Switch to the user and start a shell
+# #USER flcav_user 
+# COPY . /workspace
+
+#USER root
+#WORKDIR /workspace/CarlaFLCAV/FLYolo/
+# WORKDIR /workspace																																																																																																				
+# RUN python3 -m pip install -r /workspace/CarlaFLCAV/FLYolo/yolov5/requirements.txt
+
+# Start a shell by default
+CMD ["/bin/bash"]
+

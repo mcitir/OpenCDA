@@ -1,3 +1,10 @@
+# .gitignore
+
+# Ignore the archive folder and everything inside it
+archive/
+
+## Previous
+
 __pycache__/
 *.py[cod]
 *$py.class

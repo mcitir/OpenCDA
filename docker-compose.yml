@@ -1,0 +1,28 @@
+version: '3'
+
+services:
+  opencda_env:
+    image: opencda:develop
+    container_name: opencda_container
+    build:
+      context: .
+      dockerfile: Dockerfile 
+    command: /bin/bash
+    user: root 
+    privileged: true
+    network_mode: host
+    environment:
+      - DISPLAY=${DISPLAY}
+    runtime: nvidia
+    tty: true
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - /home/sms_admin/Workspace/Muzaffer/OpenCDA/bridge:/home/bridge
+      #- /usr/share/vulkan/icd.d:/usr/share/vulkan/icd.d
+    deploy:
+      resources:
+        reservations:
+          devices:
+          - driver: nvidia
+            count: all
+            capabilities: [gpu]
